@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>可愛 XO 對電腦棋</title>
+    <style>
+        /* 🎨 可愛風格 CSS */
+        body {
+            font-family: "Noto Sans TC", sans-serif;
+            text-align: center;
+            background-color: #fce4ec; /* 柔和粉紅背景 */
+            color: #4a4a4a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #d81b60; /* 可愛粉色標題 */
+            margin-bottom: 5px;
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+        }
+        #status {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #880e4f;
+            margin-bottom: 15px;
+        }
+
+        .board {
+            width: 300px;
+            height: 300px;
+            margin: 20px auto;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 8px; /* 增加間隙 */
+            border-radius: 15px;
+            background-color: #ffccbc; /* 淺橙紅棋盤背景 */
+            padding: 8px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .cell {
+            background-color: #fff8e1; /* 米白色格子 */
+            border: 3px solid #f06292; /* 粉色邊框 */
+            border-radius: 12px;
+            font-size: 3em; /* 放大符號 */
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            /* 讓符號在格子內有深度 */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2); 
+            line-height: 1;
+        }
+        
+        /* 🎨 動畫：滑鼠懸停效果 */
+        .cell:hover:empty {
+            background-color: #ffb74d; /* 橘色懸停效果 */
+            transform: scale(1.03);
+        }
+
+        /* 🎨 動畫：棋子淡入 */
+        .cell span {
+            opacity: 0;
+            animation: fadein 0.3s ease-in forwards;
+        }
+        @keyframes fadein {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .controls {
+            margin-top: 15px;
+        }
+        #resetBtn {
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: none;
+            background-color: #ff8a65; /* 珊瑚紅按鈕 */
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        #resetBtn:hover {
+            background-color: #ff5722;
+            transform: translateY(-2px);
+        }
+        #resetBtn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <h1>XO 對電腦棋</h1>
+        <div id="status">玩家 (X) 先手</div> 
+        <div id="board" class="board"></div>
+        <div class="controls">
+            <button id="resetBtn" onclick="resetGame()">重開一局</button> 
+        </div>
+    </main>
+
+    <script>
+        // 遊戲主變數
+        let board = Array(9).fill(null); // 棋盤狀態：0-8
+        let current = 'X'; // 當前玩家（玩家為X）
+        let active = true; // 控制遊戲是否進行中
+        const PLAYER = 'X';
+        const AI = 'O';
+        
+        // 所有可能的獲勝組合
+        const WIN_COMBOS = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6]
+        ];
+
+        // --- 核心遊戲流程 ---
+
+        // 初始化棋盤
+        function init() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            board = Array(9).fill(null);
+            active = true;
+            current = PLAYER;
+            document.getElementById('status').innerText = '玩家 (X) 先手';
+            
+            // 建立9個格子並綁定事件
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('cell');
+                cell.dataset.index = i; // 使用 data 屬性存儲索引
+                cell.onclick = () => playerMove(i);
+                boardEl.appendChild(cell);
+            }
+        }
+
+        // 玩家下棋
+        function playerMove(i) {
+            if (!active || board[i] || current !== PLAYER) return;
+
+            board[i] = PLAYER;
+            updateBoard();
+
+            if (checkWin(PLAYER)) {
+                endGame('玩家 (X) 勝利！');
+                return;
+            } else if (isFull()) {
+                endGame('平手！');
+                return;
+            }
+
+            current = AI;
+            document.getElementById('status').innerText = '電腦思考中...';
+            setTimeout(computerMove, 700); // 模擬電腦思考時間
+        }
+
+        // 電腦AI下棋邏輯 (使用 Minimax)
+        function computerMove() {
+            if (!active) return;
+            
+            const bestMove = findBestMove(board);
+            
+            if (bestMove !== null) {
+                board[bestMove] = AI;
+                updateBoard();
+            }
+
+            if (checkWin(AI)) {
+                endGame('電腦 (O) 勝利！');
+                return;
+            } else if (isFull()) {
+                endGame('平手！');
+                return;
+            }
+
+            current = PLAYER;
+            document.getElementById('status').innerText = '輪到玩家 (X)';
+        }
+
+        // --- Minimax AI 演算法 ---
+
+        // 終端評估函式
+        function evaluate(currentBoard) {
+            // 檢查 AI 贏 (+10)
+            if (checkWin(AI, currentBoard)) return 10;
+            // 檢查 玩家 贏 (-10)
+            if (checkWin(PLAYER, currentBoard)) return -10;
+            // 平手 (0)
+            return 0;
+        }
+
+        // 取得所有空格
+        function getEmptySpots(currentBoard) {
+            return currentBoard.map((val, index) => val === null ? index : null).filter(val => val !== null);
+        }
+
+        /**
+         * Minimax 遞迴函式
+         * @param {Array<string|null>} currentBoard 模擬棋盤
+         * @param {string} player 當前 Minimax 節點的玩家 ('X' 或 'O')
+         * @returns {number} 當前狀態的最佳分數
+         */
+        function minimax(currentBoard, player) {
+            const score = evaluate(currentBoard);
+
+            // 1. 終端狀態檢查
+            if (score === 10 || score === -10) {
+                return score;
+            }
+            if (isFull(currentBoard)) {
+                return 0;
+            }
+
+            const emptySpots = getEmptySpots(currentBoard);
+
+            if (player === AI) { // AI: Maximize
+                let best = -Infinity;
+                for (let i of emptySpots) {
+                    currentBoard[i] = AI;
+                    // 遞迴調用 Minimax，切換到 PLAYER
+                    best = Math.max(best, minimax(currentBoard, PLAYER));
+                    currentBoard[i] = null; // 撤銷走法
+                }
+                return best;
+            } else { // PLAYER: Minimize
+                let best = Infinity;
+                for (let i of emptySpots) {
+                    currentBoard[i] = PLAYER;
+                    // 遞迴調用 Minimax，切換到 AI
+                    best = Math.min(best, minimax(currentBoard, AI));
+                    currentBoard[i] = null; // 撤銷走法
+                }
+                return best;
+            }
+        }
+
+        // 找到最佳走法
+        function findBestMove(currentBoard) {
+            let bestVal = -Infinity;
+            let bestMove = null;
+
+            const emptySpots = getEmptySpots(currentBoard);
+
+            for (let i of emptySpots) {
+                // 嘗試走法
+                currentBoard[i] = AI;
+                
+                // 呼叫 Minimax，找到當前走法的評分。下一層是 PLAYER (Minimizer)
+                let moveVal = minimax(currentBoard, PLAYER);
+                
+                // 撤銷走法
+                currentBoard[i] = null;
+
+                // 比較並更新最佳走法
+                if (moveVal > bestVal) {
+                    bestVal = moveVal;
+                    bestMove = i;
+                }
+            }
+            return bestMove;
+        }
+
+
+        // --- 輔助函式 ---
+
+        // 更新畫面
+        function updateBoard() {
+            const cells = document.getElementsByClassName('cell');
+            for (let i = 0; i < 9; i++) {
+                // 為了動畫效果，我們在 cell 內使用 span 包含符號
+                if (board[i]) {
+                    // 檢查是否已存在 span，避免重複添加
+                    if (!cells[i].querySelector('span')) {
+                        const span = document.createElement('span');
+                        span.innerText = board[i];
+                        cells[i].appendChild(span);
+                    }
+                } else {
+                    cells[i].innerHTML = ''; // 清空空格
+                }
+            }
+        }
+
+        /**
+         * 判斷勝利
+         * @param {string} player 要檢查的玩家 ('X' 或 'O')
+         * @param {Array<string|null>} currentBoard 檢查的棋盤狀態 (預設為全域 board)
+         */
+        function checkWin(player, currentBoard = board) {
+            return WIN_COMBOS.some(([a, b, c]) => 
+                currentBoard[a] === player && 
+                currentBoard[b] === player && 
+                currentBoard[c] === player
+            );
+        }
+
+        /**
+         * 判斷是否平手
+         * @param {Array<string|null>} currentBoard 檢查的棋盤狀態 (預設為全域 board)
+         */
+        function isFull(currentBoard = board) {
+            return currentBoard.every(cell => cell !== null);
+        }
+
+        // 結束遊戲
+        function endGame(message) {
+            document.getElementById('status').innerText = message;
+            active = false;
+        }
+
+        // 重開一局
+        function resetGame() {
+            init();
+        }
+
+        // 初始化
+        init();
+    </script>
+</body>
+</html>
